@@ -29,6 +29,9 @@
       ? config.showBothBranches === true 
       : true; // Default to true if not specified
     var apiKey = config.apiKey || extensionField.stack.apiKey;
+    // Support branch-specific delivery tokens
+    var mainBranchToken = config.mainBranchDeliveryToken || config.deliveryToken || '';
+    var currentBranchToken = config.currentBranchDeliveryToken || config.deliveryToken || '';
     var deliveryToken = config.deliveryToken || '';
     var environment = config.environment || extensionField.stack.environment || 'production';
     var region = config.region || 'NA';
@@ -93,9 +96,12 @@
     var fetchPromises = [];
     
     // Always fetch from Main branch
+    var mainToken = mainBranchToken || deliveryToken;
+    console.log('Using token for Main branch fetch');
     fetchPromises.push(
-      fetchContentFromBranch(targetBranch, contentType, apiKey, deliveryToken, environment, region)
+      fetchContentFromBranch(targetBranch, contentType, apiKey, mainToken, environment, region)
         .then(function(entries) {
+          console.log('Main branch returned', entries.length, 'entries');
           return entries.map(function(entry) {
             var newEntry = {};
             for (var key in entry) {
@@ -108,15 +114,26 @@
             return newEntry;
           });
         })
+        .catch(function(error) {
+          console.error('Error fetching Main branch:', error);
+          return [];
+        })
     );
     
     // Also fetch from current branch if showBothBranches is true
     if (showBothBranches && currentBranch !== targetBranch) {
       console.log('Fetching from current branch:', currentBranch);
+      // Use branch-specific token if available, otherwise use default
+      var branchToken = currentBranchToken || deliveryToken;
+      console.log('Using token for', currentBranch, 'branch fetch');
       fetchPromises.push(
-        fetchContentFromBranch(currentBranch, contentType, apiKey, deliveryToken, environment, region)
+        fetchContentFromBranch(currentBranch, contentType, apiKey, branchToken, environment, region)
           .then(function(entries) {
             console.log('Fetched ' + entries.length + ' entries from ' + currentBranch + ' branch');
+            // Log first few entry UIDs to verify they're different
+            if (entries.length > 0) {
+              console.log('Sample entry UIDs from', currentBranch + ':', entries.slice(0, 3).map(function(e) { return e.uid; }));
+            }
             return entries.map(function(entry) {
               var newEntry = {};
               for (var key in entry) {
@@ -147,13 +164,49 @@
     // Fetch from both branches in parallel
     Promise.all(fetchPromises)
       .then(function(results) {
-        // Combine all entries
+        // Combine all entries with detailed logging
         var allEntries = [];
+        var mainBranchUids = [];
+        var currentBranchUids = [];
+        
         results.forEach(function(branchEntries, index) {
-          console.log('Branch result ' + index + ':', branchEntries.length + ' entries');
+          var branchName = index === 0 ? targetBranch : currentBranch;
+          var entryUids = branchEntries.map(function(e) { return e.uid; });
+          
+          console.log('Branch result ' + index + ' (' + branchName + '):', {
+            count: branchEntries.length,
+            uids: entryUids,
+            branchLabel: branchEntries[0] ? branchEntries[0]._branch_label : 'none'
+          });
+          
+          if (index === 0) {
+            mainBranchUids = entryUids;
+          } else {
+            currentBranchUids = entryUids;
+          }
+          
           allEntries = allEntries.concat(branchEntries);
         });
+        
+        // Check for duplicate UIDs between branches
+        if (mainBranchUids.length > 0 && currentBranchUids.length > 0) {
+          var duplicates = mainBranchUids.filter(function(uid) {
+            return currentBranchUids.indexOf(uid) !== -1;
+          });
+          if (duplicates.length > 0) {
+            console.warn('⚠️ DUPLICATE UIDs FOUND between branches:', duplicates);
+            console.warn('This suggests both branches are returning the same entries!');
+          } else {
+            console.log('✅ No duplicate UIDs - branches have different entries');
+          }
+        }
+        
         console.log('Total entries to display:', allEntries.length);
+        console.log('Entries by branch:', {
+          main: allEntries.filter(function(e) { return e._branch === targetBranch; }).length,
+          current: allEntries.filter(function(e) { return e._branch === currentBranch; }).length
+        });
+        
         renderContentSelector(container, allEntries, currentData, multiple, field);
       })
       .catch(function(error) {
@@ -172,44 +225,102 @@
       // Determine API endpoint based on region
       var apiBaseUrl = getApiBaseUrl(region);
       
-      // Build the API URL
+      // Build the API URL - Contentstack Delivery API format
+      // According to docs: https://www.contentstack.com/docs/developers/apis/content-delivery-api
+      // Branch should be in query string, environment in query string
       var url = apiBaseUrl + '/v3/content_types/' + contentType + '/entries';
-      var params = new URLSearchParams({
-        environment: environment,
-        branch: branch
-      });
+      var params = new URLSearchParams();
+      params.append('environment', environment);
+      params.append('branch', branch);
+      params.append('include_branch', 'true');  // Returns _branch in response to verify branch
       
       url += '?' + params.toString();
       
+      console.log('🔍 Fetching from branch:', branch);
+      console.log('   Base URL:', apiBaseUrl);
+      console.log('   Full URL:', url);
+      console.log('   Environment:', environment);
+      console.log('   Branch param:', branch);
+      console.log('   Content Type:', contentType);
+      
       // Make API request
+      // Contentstack Delivery API: branch in query string, headers for auth
+      var headers = {
+        'api_key': apiKey,
+        'access_token': deliveryToken,
+        'Content-Type': 'application/json'
+        // Note: Branch is in query string, not header for Delivery API
+      };
+      
+      console.log('   Request headers:', {
+        api_key: apiKey ? apiKey.substring(0, 10) + '...' : 'missing',
+        access_token: deliveryToken ? deliveryToken.substring(0, 10) + '...' : 'missing'
+      });
+      
       return fetch(url, {
         method: 'GET',
-        headers: {
-          'api_key': apiKey,
-          'access_token': deliveryToken,
-          'Content-Type': 'application/json'
-        }
+        headers: headers
       })
       .then(function(response) {
         if (!response.ok) {
-          throw new Error('API request failed: ' + response.status + ' ' + response.statusText);
+          var errorText = 'API request failed: ' + response.status + ' ' + response.statusText;
+          console.error('Error fetching from branch', branch, ':', errorText);
+          throw new Error(errorText);
         }
         return response.json();
       })
       .then(function(data) {
-        return data.entries || [];
+        var entries = data.entries || [];
+        var entryUids = entries.map(function(e) { return e.uid; });
+        
+        // Check branch information from API response
+        var responseBranch = data.branch || data._branch || 'not in response';
+        var firstEntryBranch = entries.length > 0 && entries[0]._branch ? entries[0]._branch : 'none';
+        
+        console.log('API Response for branch', branch, ':', {
+          entriesCount: entries.length,
+          entryUids: entryUids,
+          firstEntryTitle: entries[0] ? (entries[0].title || entries[0].name || entries[0].uid) : 'none',
+          responseKeys: Object.keys(data),
+          apiResponseBranch: responseBranch,
+          firstEntryBranch: firstEntryBranch
+        });
+        
+        // Verify entries are from the correct branch
+        if (responseBranch !== 'not in response' && responseBranch !== branch) {
+          console.warn('⚠️ WARNING: API returned branch', responseBranch, 'but requested', branch);
+        }
+        
+        // Check if entries have branch metadata (from include_branch=true)
+        if (entries.length > 0) {
+          var entryBranches = entries.map(function(e) { return e._branch; }).filter(function(b) { return b; });
+          if (entryBranches.length > 0) {
+            var uniqueBranches = entryBranches.filter(function(value, index, self) {
+              return self.indexOf(value) === index;
+            });
+            console.log('Entry branch metadata from include_branch:', uniqueBranches);
+            
+            // Warn if entries have different branch than requested
+            if (uniqueBranches.length === 1 && uniqueBranches[0] !== branch) {
+              console.warn('⚠️ WARNING: Entries have _branch:', uniqueBranches[0], 'but requested:', branch);
+            }
+          }
+        }
+        
+        return entries;
       });
     }
     
     /**
      * Get API base URL based on region
+     * Contentstack Delivery API uses CDN endpoints, not Management API endpoints
      */
     function getApiBaseUrl(region) {
       var regionMap = {
-        'NA': 'https://api.contentstack.io',
-        'EU': 'https://eu-api.contentstack.com',
-        'AZURE_NA': 'https://azure-na-api.contentstack.com',
-        'AZURE_EU': 'https://azure-eu-api.contentstack.com'
+        'NA': 'https://cdn.contentstack.io',
+        'EU': 'https://eu-cdn.contentstack.com',
+        'AZURE_NA': 'https://azure-na-cdn.contentstack.com',
+        'AZURE_EU': 'https://azure-eu-cdn.contentstack.com'
       };
       return regionMap[region] || regionMap['NA'];
     }
