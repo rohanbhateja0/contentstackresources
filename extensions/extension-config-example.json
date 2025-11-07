@@ -1,8 +1,9 @@
 {
   "title": "Main Branch Content Selector",
   "description": "Select content from Main branch while working in child branches",
+  "uid": "bltff58456ed026baa2",
   "type": "field",
-  "src": "https://your-domain.com/extensions/main-branch-selector.html",
+  "src": "https://contentstackresources.vercel.app/extensions/main-branch-selector.html",
   "config": {
     "targetBranch": "main",
     "contentType": "global_header",

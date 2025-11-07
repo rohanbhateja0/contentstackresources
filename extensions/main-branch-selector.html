@@ -180,6 +180,31 @@
       white-space: nowrap;
     }
     
+    .cs-extension-item-badge-main {
+      background: #0066cc;
+    }
+    
+    .cs-extension-item-badge-current {
+      background: #28a745;
+    }
+    
+    /* Branch Grouping */
+    .cs-extension-branch-group {
+      margin-bottom: 20px;
+    }
+    
+    .cs-extension-branch-header {
+      font-weight: 700;
+      font-size: 13px;
+      color: #333;
+      padding: 8px 12px;
+      background: #f8f9fa;
+      border-bottom: 2px solid #e0e0e0;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
     /* Scrollbar styling */
     .cs-extension-list::-webkit-scrollbar {
       width: 8px;
@@ -203,6 +228,19 @@
   <div id="main-branch-selector-container">
     <!-- Extension content will be rendered here -->
   </div>
+  
+  <!-- Load Contentstack UI Extension SDK (if not already provided by Contentstack) -->
+  <script>
+    // Check if SDK is already available (Contentstack may inject it automatically)
+    if (typeof ContentstackUIExtension === 'undefined') {
+      var script = document.createElement('script');
+      script.src = 'https://unpkg.com/@contentstack/ui-extensions-sdk@latest/dist/ui-extension-sdk.js';
+      script.onerror = function() {
+        console.error('Failed to load Contentstack UI Extension SDK');
+      };
+      document.head.appendChild(script);
+    }
+  </script>
   
   <!-- Load the extension script -->
   <script src="https://contentstackresources.vercel.app/extensions/main-branch-selector.js"></script>
