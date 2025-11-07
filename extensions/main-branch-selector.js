@@ -24,14 +24,49 @@
     var targetBranch = config.targetBranch || 'main';
     var contentType = config.contentType || '';
     var multiple = config.multiple || false;
-    var showBothBranches = config.showBothBranches !== false; // Default to true
+    // showBothBranches: explicitly check if it's set, default to true if not specified
+    var showBothBranches = config.hasOwnProperty('showBothBranches') 
+      ? config.showBothBranches === true 
+      : true; // Default to true if not specified
     var apiKey = config.apiKey || extensionField.stack.apiKey;
     var deliveryToken = config.deliveryToken || '';
     var environment = config.environment || extensionField.stack.environment || 'production';
     var region = config.region || 'NA';
     
     // Get current branch (midwest, site-a, etc.)
-    var currentBranch = extensionField.stack.branch || 'main';
+    // Contentstack SDK doesn't expose branch directly, so we rely on manual config
+    // Priority: 1) Manual config (currentBranch), 2) Try to get from stack, 3) Default to 'main'
+    var currentBranch = config.currentBranch;
+    
+    // Try to get from stack if not manually specified
+    if (!currentBranch) {
+      // Try various ways to get branch info (SDK may not expose it)
+      if (extensionField.stack && extensionField.stack.branch) {
+        currentBranch = extensionField.stack.branch;
+      } else if (extensionField.stack && extensionField.stack.branchName) {
+        currentBranch = extensionField.stack.branchName;
+      } else if (window.location && window.location.search) {
+        // Try to get from URL parameters if available
+        var urlParams = new URLSearchParams(window.location.search);
+        currentBranch = urlParams.get('branch') || urlParams.get('branchName');
+      }
+    }
+    
+    // Default to 'main' if still not found
+    if (!currentBranch) {
+      currentBranch = 'main';
+      console.warn('Current branch not detected. Defaulting to "main". Please set "currentBranch" in config.');
+    }
+    
+    // Debug logging
+    console.log('Extension Config:', {
+      showBothBranches: showBothBranches,
+      targetBranch: targetBranch,
+      currentBranch: currentBranch,
+      contentType: contentType,
+      stackInfo: extensionField.stack,
+      config: config
+    });
     
     // Get current field data
     var currentData = field.getData() || (multiple ? [] : null);
@@ -77,9 +112,11 @@
     
     // Also fetch from current branch if showBothBranches is true
     if (showBothBranches && currentBranch !== targetBranch) {
+      console.log('Fetching from current branch:', currentBranch);
       fetchPromises.push(
         fetchContentFromBranch(currentBranch, contentType, apiKey, deliveryToken, environment, region)
           .then(function(entries) {
+            console.log('Fetched ' + entries.length + ' entries from ' + currentBranch + ' branch');
             return entries.map(function(entry) {
               var newEntry = {};
               for (var key in entry) {
@@ -92,7 +129,19 @@
               return newEntry;
             });
           })
+          .catch(function(error) {
+            console.error('Error fetching from current branch (' + currentBranch + '):', error);
+            // Return empty array so Main branch content still shows
+            return [];
+          })
       );
+    } else {
+      console.log('Skipping current branch fetch:', {
+        showBothBranches: showBothBranches,
+        currentBranch: currentBranch,
+        targetBranch: targetBranch,
+        reason: !showBothBranches ? 'showBothBranches is false' : 'currentBranch === targetBranch'
+      });
     }
     
     // Fetch from both branches in parallel
@@ -100,9 +149,11 @@
       .then(function(results) {
         // Combine all entries
         var allEntries = [];
-        results.forEach(function(branchEntries) {
+        results.forEach(function(branchEntries, index) {
+          console.log('Branch result ' + index + ':', branchEntries.length + ' entries');
           allEntries = allEntries.concat(branchEntries);
         });
+        console.log('Total entries to display:', allEntries.length);
         renderContentSelector(container, allEntries, currentData, multiple, field);
       })
       .catch(function(error) {
