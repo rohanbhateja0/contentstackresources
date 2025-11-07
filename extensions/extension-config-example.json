@@ -1,0 +1,36 @@
+{
+  "title": "Main Branch Content Selector",
+  "description": "Select content from Main branch while working in child branches",
+  "type": "field",
+  "src": "https://your-domain.com/extensions/main-branch-selector.html",
+  "config": {
+    "targetBranch": "main",
+    "contentType": "global_header",
+    "multiple": false,
+    "apiKey": "${apiKey}",
+    "deliveryToken": "${deliveryToken}",
+    "environment": "${environment}",
+    "region": "NA"
+  },
+  "field_config_examples": {
+    "single_selection": {
+      "display_name": "Shared Header from Main",
+      "uid": "shared_header_main",
+      "config": {
+        "targetBranch": "main",
+        "contentType": "global_header",
+        "multiple": false
+      }
+    },
+    "multiple_selection": {
+      "display_name": "Shared Assets from Main",
+      "uid": "shared_assets_main",
+      "config": {
+        "targetBranch": "main",
+        "contentType": "shared_asset_library",
+        "multiple": true
+      }
+    }
+  }
+}
+
